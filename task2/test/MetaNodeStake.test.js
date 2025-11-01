@@ -33,12 +33,12 @@ describe("MetaNodeStake Tests", function () {
         await meteNode.transfer(user1.address, ethers.parseEther("1000"));
     })
 
-    it("should have correct initial balance for deployer", async function () {
+    it("部署者初始余额正确", async function () {
         const balance = await meteNode.balanceOf(deployer);
         expect(balance).to.be.gt(0);
     });
 
-    it("should allow user to deposit, claim rewards", async function () {
+    it("用户可以存入代币并领取奖励", async function () {
         // ✅ 第一个池子必须是 ETH
         await metaNodeStake.addPool(
             ethers.ZeroAddress, // ETH 池
@@ -63,5 +63,58 @@ describe("MetaNodeStake Tests", function () {
 
         const balance = await meteNode.balanceOf(user1.address);
         expect(balance).to.be.gt(ethers.parseEther("900")); // 奖励到账
+    });
+
+    it("非管理员不能修改 MetaNode 地址", async function () {
+        await expect(
+            metaNodeStake.connect(user1).setMetaNode(meteNodeAddress)
+        ).to.be.revertedWithCustomError(metaNodeStake, "AccessControlUnauthorizedAccount")
+         .withArgs(user1.address, await metaNodeStake.ADMIN_ROLE());
+
+    });
+
+    it("用户可解除质押并提取代币", async function () {
+         // ✅ 第一个池子必须是 ETH
+        await metaNodeStake.addPool(
+            ethers.ZeroAddress, // ETH 池
+            100,                          // poolWeight
+            ethers.parseEther("1"), // minDepositAmount
+            1,                            // unstakeLockedBlocks
+            true                          // withUpdate
+        );
+        await metaNodeStake.addPool(meteNodeAddress, 100, ethers.parseEther("1"), 5, true);
+        await meteNode.connect(user1).approve(metaNodeStakeAddress, ethers.parseEther("100"));
+        await metaNodeStake.connect(user1).deposit(1, ethers.parseEther("100"));
+
+        await metaNodeStake.connect(user1).unstake(1, ethers.parseEther("50"));
+
+        await ethers.provider.send("hardhat_mine", ["0x5"]); // 等待锁定区块
+
+        await metaNodeStake.connect(user1).withdraw(1);
+        const balance = await meteNode.balanceOf(user1.address);
+        expect(balance).to.be.gte(ethers.parseEther("950"));
+    });
+
+    it("多次存入可累积奖励", async function () {
+         // ✅ 第一个池子必须是 ETH
+        await metaNodeStake.addPool(
+            ethers.ZeroAddress, // ETH 池
+            100,                          // poolWeight
+            ethers.parseEther("1"), // minDepositAmount
+            1,                            // unstakeLockedBlocks
+            true                          // withUpdate
+        );
+        await metaNodeStake.addPool(meteNodeAddress, 100, ethers.parseEther("1"), 1, true);
+        await meteNode.connect(user1).approve(metaNodeStakeAddress, ethers.parseEther("200"));
+
+        await metaNodeStake.connect(user1).deposit(1, ethers.parseEther("100"));
+        await ethers.provider.send("hardhat_mine", ["0x5"]);
+
+        await metaNodeStake.connect(user1).deposit(1, ethers.parseEther("100"));
+        await ethers.provider.send("hardhat_mine", ["0x5"]);
+
+        await metaNodeStake.connect(user1).claim(1);
+        const balance = await meteNode.balanceOf(user1.address);
+        expect(balance).to.be.gt(ethers.parseEther("800"));
     });
 })
